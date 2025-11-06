@@ -9,8 +9,6 @@ import { CustomNavigationClient } from "./utils/NavigationClient";
 
 // Sample app imports
 import { PageLayout } from "./ui-components/PageLayout";
-import { Home } from "./pages/Home";
-import { Profile } from "./pages/Profile";
 import TeamsList from "./ui-components/TeamsList";
 import './styles.css';
 
@@ -37,21 +35,11 @@ function App({ pca }: AppProps) {
                                 Lade Bilder und Beiträge in Microsoft Teams Kanäle hoch.
                             </Typography>
                         </Box>
-                        <Pages />
+                        <TeamsList />
                     </Paper>
                 </Container>
             </PageLayout>
         </MsalProvider>
-    );
-}
-
-function Pages() {
-    return (
-        <Routes>
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/" element={<Home />} />
-            <Route path="/teams" element={<TeamsList />} />
-        </Routes>
     );
 }
 
