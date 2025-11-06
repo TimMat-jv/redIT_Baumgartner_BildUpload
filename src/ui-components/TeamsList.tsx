@@ -6,16 +6,7 @@ import ChannelsList from "./ChannelsList";
 import { postMessageToChannel } from "./PostMessage";
 import { Autocomplete, TextField, Button, Typography, Box, Alert, IconButton } from "@mui/material";
 import { Star, StarBorder } from "@mui/icons-material";
-
-interface Team {
-    id: string;
-    displayName: string;
-}
-
-interface Channel {
-    id: string;
-    displayName: string;
-}
+import { db, OfflineDB, FavoriteTeam, OfflinePost, Team, Channel } from '../db';
 
 const TeamsList: React.FC = () => {
     const { instance, accounts } = useMsal();
@@ -30,6 +21,32 @@ const TeamsList: React.FC = () => {
     const [imageUrls, setImageUrls] = useState<string[]>([]);
     const [posting, setPosting] = useState<boolean>(false);
     const [favorites, setFavorites] = useState<Set<string>>(new Set());
+    const [isOnline, setIsOnline] = useState(navigator.onLine);
+    const [offlinePosts, setOfflinePosts] = useState<any[]>([]);
+    const [cachedFavorites, setCachedFavorites] = useState<any[]>([]);
+
+    // Online-Status überwachen
+    useEffect(() => {
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
+
+    // Lade gecachte Favoriten und Offline-Posts
+    useEffect(() => {
+        const loadCachedData = async () => {
+            const cached = await db.favoriteTeams.toArray();
+            setCachedFavorites(cached);
+            const posts = await db.posts.toArray();
+            setOfflinePosts(posts);
+        };
+        loadCachedData();
+    }, []);
 
     useEffect(() => {
         const stored = localStorage.getItem('favoriteTeams');
@@ -38,7 +55,7 @@ const TeamsList: React.FC = () => {
 
     useEffect(() => {
         const fetchTeams = async () => {
-            if (!account) return;
+            if (!account || !isOnline) return;  // Nur online laden
 
             const request = { ...loginRequest, account };
 
@@ -73,14 +90,30 @@ const TeamsList: React.FC = () => {
         };
 
         fetchTeams();
-    }, [instance, account, favorites]);
+    }, [instance, account, favorites, isOnline]);
 
-    const toggleFavorite = (teamId: string) => {
+    const toggleFavorite = async (teamId: string) => {
         const newFavorites = new Set(favorites);
         if (newFavorites.has(teamId)) {
             newFavorites.delete(teamId);
+            await db.favoriteTeams.delete(teamId);  // Aus Cache entfernen
         } else {
             newFavorites.add(teamId);
+            // Cache Team und Kanäle (nur online)
+            if (isOnline && account) {
+                const team = teams.find(t => t.id === teamId);
+                if (team) {
+                    // Kanäle laden und cachen
+                    const request = { ...loginRequest, account };
+                    const response = await instance.acquireTokenSilent(request);
+                    const accessToken = response.accessToken;
+                    const channelsResponse = await fetch(`https://graph.microsoft.com/v1.0/teams/${teamId}/channels`, {
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                    });
+                    const channelsData = await channelsResponse.json();
+                    await db.favoriteTeams.put({ id: teamId, displayName: team.displayName, channels: channelsData.value });
+                }
+            }
         }
         setFavorites(newFavorites);
         localStorage.setItem('favoriteTeams', JSON.stringify([...newFavorites]));
@@ -91,6 +124,39 @@ const TeamsList: React.FC = () => {
         setUploadSuccess(false);
         setCustomText("");
         setImageUrls([]);
+    };
+
+    const saveOfflinePost = async (files?: File[]) => {
+        if (!selectedTeam || !selectedChannel) return;
+        const post = {
+            teamId: selectedTeam.id,
+            channelId: selectedChannel.id,
+            text: customText,
+            imageUrls,
+            timestamp: Date.now()
+        };
+        await db.posts.add(post);
+        setOfflinePosts([...offlinePosts, post]);
+        alert('Offline gespeichert!');
+        setCustomText('');
+        setImageUrls([]);
+    };
+
+    const syncOfflinePosts = async () => {
+        if (!account || !isOnline || offlinePosts.length === 0) return;
+        for (const post of offlinePosts) {
+            try {
+                const request = { ...loginRequest, account };
+                const response = await instance.acquireTokenSilent(request);
+                const accessToken = response.accessToken;
+                await postMessageToChannel(accessToken, post.teamId, post.channelId, post.text, post.imageUrls);
+                await db.posts.delete(post.id);
+            } catch (err) {
+                console.error('Sync-Fehler:', err);
+            }
+        }
+        setOfflinePosts([]);
+        alert('Offline-Posts synchronisiert!');
     };
 
     const handlePostToChannel = async () => {
@@ -124,7 +190,7 @@ const TeamsList: React.FC = () => {
             const bFav = favorites.has(b.id);
             if (aFav && !bFav) return -1;
             if (!aFav && bFav) return 1;
-            return a.displayName.localeCompare(b.displayName);  // Alphabetisch, wenn beide Favorit oder beide nicht
+            return a.displayName.localeCompare(b.displayName);
         });
     }, [teams, favorites]);
 
@@ -133,11 +199,18 @@ const TeamsList: React.FC = () => {
 
     return (
         <Box sx={{ mt: 3 }}>
+            {/* Offline-Hinweis */}
+            {(!isOnline || !account) && (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                    {!isOnline ? 'Offline-Modus: Eingaben werden lokal gespeichert.' : 'Nicht eingeloggt: Eingaben werden lokal gespeichert.'}
+                </Alert>
+            )}
+
             <Typography variant="h5" gutterBottom>
                 Team auswählen
             </Typography>
             <Autocomplete
-                options={sortedTeams}  // Verwende sortierte Liste
+                options={sortedTeams}
                 getOptionLabel={(option) => option.displayName}
                 value={selectedTeam}
                 onChange={handleTeamSelect}
@@ -156,9 +229,13 @@ const TeamsList: React.FC = () => {
                 <ChannelsList
                     team={selectedTeam}
                     onChannelSelect={setSelectedChannel}
-                    onUploadSuccess={(urls: string[]) => {
+                    onUploadSuccess={(urls: string[], files?: File[]) => {
                         setImageUrls(urls);
                         setUploadSuccess(true);
+                        // Für Offline: Speichere files, wenn vorhanden
+                        if (files && !isOnline) {
+                            saveOfflinePost(files);
+                        }
                     }}
                     onCustomTextChange={setCustomText}
                     customText={customText}
@@ -169,11 +246,17 @@ const TeamsList: React.FC = () => {
                 <Button
                     variant="contained"
                     color="primary"
-                    onClick={handlePostToChannel}
+                    onClick={isOnline && account ? handlePostToChannel : () => saveOfflinePost()}  // Wrappe saveOfflinePost in eine Funktion
                     disabled={posting}
                     sx={{ mt: 2 }}
                 >
-                    {posting ? "Posting..." : "Beitrag in Kanal posten"}
+                    {posting ? "Posting..." : (isOnline && account ? "Beitrag in Kanal posten" : "Offline speichern")}
+                </Button>
+            )}
+            {/* Sync-Button */}
+            {isOnline && account && offlinePosts.length > 0 && (
+                <Button onClick={syncOfflinePosts} variant="contained" sx={{ mt: 2 }}>
+                    Offline-Posts synchronisieren ({offlinePosts.length})
                 </Button>
             )}
         </Box>

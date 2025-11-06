@@ -5,6 +5,7 @@ import { InteractionRequiredAuthError } from "@azure/msal-browser";
 import { loginRequest } from "../authConfig";
 import { TextField, Button, Typography, Box, Alert, Paper, Grid, IconButton, Card, CardMedia, CardContent } from "@mui/material";
 import { Delete as DeleteIcon } from "@mui/icons-material";
+import { db } from '../db';
 
 export interface Team {
     id: string;
@@ -19,7 +20,7 @@ export interface Channel {
 interface ImageUploadProps {
     team: Team;
     channel: Channel;
-    onUploadSuccess: (urls: string[]) => void;
+    onUploadSuccess: (urls: string[], files?: File[]) => void;  // Zweites Argument optional hinzufügen
     onCustomTextChange: (text: string) => void;
     customText: string;
 }
@@ -156,6 +157,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const isOnline = navigator.onLine;  // Oder prop übergeben
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files && event.target.files.length > 0) {
@@ -221,7 +223,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
             }
 
             // Schritt 4: Erfolgreich hochgeladen - Callback aufrufen
-            onUploadSuccess(imageUrls);
+            onUploadSuccess(imageUrls, selectedFiles);  // Übergebe Dateien zusätzlich
             setSuccess(`${selectedFiles.length} image(s) uploaded successfully!`);
         } catch (err) {
             if (err instanceof InteractionRequiredAuthError) {
@@ -231,6 +233,16 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
             }
         } finally {
             setUploading(false);
+        }
+    };
+
+    const handleUpload = async () => {
+        if (isOnline) {
+            // Normale Upload-Logik, z. B. zu OneDrive, dann onUploadSuccess(urls)
+        } else {
+            // Offline: Speichere Dateien lokal (keine URLs)
+            const urls: string[] = [];  // Leere URLs für Offline
+            onUploadSuccess(urls, selectedFiles);  // Übergebe Dateien zusätzlich
         }
     };
 

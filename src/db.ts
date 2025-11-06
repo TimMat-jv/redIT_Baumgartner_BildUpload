@@ -1,0 +1,41 @@
+import Dexie from 'dexie';
+
+export interface Team {
+    id: string;
+    displayName: string;
+}
+
+export interface Channel {
+    id: string;
+    displayName: string;
+}
+
+export interface FavoriteTeam {
+    id: string;
+    displayName: string;
+    channels: Channel[];
+}
+
+export interface OfflinePost {
+    id?: number;
+    teamId: string;
+    channelId: string;
+    text: string;
+    imageUrls: string[];
+    timestamp: number;
+}
+
+export class OfflineDB extends Dexie {
+    favoriteTeams!: Dexie.Table<FavoriteTeam, string>;
+    posts!: Dexie.Table<OfflinePost, number>;
+
+    constructor() {
+        super('offlineData');
+        this.version(1).stores({
+            favoriteTeams: 'id, displayName, channels',
+            posts: '++id, teamId, channelId, text, imageUrls, timestamp'
+        });
+    }
+}
+
+export const db = new OfflineDB();
