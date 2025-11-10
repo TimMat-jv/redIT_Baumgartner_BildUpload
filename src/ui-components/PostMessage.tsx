@@ -54,12 +54,12 @@ export const postMessageToChannel = async (
     ];
 
     // Verwende base64 für Thumbnails, URLs für Links
-    imageUrls.forEach((url, index) => {
+    imageUrls.slice(0, 4).forEach((url, index) => {
         const base64 = base64Images?.[index];
         bodyElements.push({
             type: "Image",
             url: base64 || url,
-            size: "Large",  // Von "Medium" zu "Large" für maximale Größe
+            size: "Large",
             selectAction: {
                 type: "Action.OpenUrl",
                 url: url,

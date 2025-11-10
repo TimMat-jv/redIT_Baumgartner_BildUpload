@@ -177,6 +177,65 @@ const TeamsList: React.FC = () => {
         return cachedFavorites.map(fav => ({ id: fav.id, displayName: fav.displayName }));  // Offline: Nur gecachte
     }, [isOnline, teams, sortedTeams, cachedFavorites]);
 
+    // Füge syncPost Funktion hinzu (falls nicht vorhanden)
+    const syncPost = async (post: any) => {
+        if (!account || !isOnline) return;
+        setPosting(true);
+        try {
+            console.log('Starte Sync für Post:', post.id);
+            const request = { ...loginRequest, account };
+            const response = await instance.acquireTokenSilent(request);
+            const accessToken = response.accessToken;
+
+            // Bilder aus Dexie laden
+            const images = await db.images.where('postId').equals(post.id).toArray();
+            const files = images.map(img => img.file);
+
+            // Erzeuge base64Images für Thumbnails
+            const base64Images = await encodeFilesToBase64(files);
+
+            // Ordner und Site-ID prüfen
+            const siteResponse = await fetch(`https://graph.microsoft.com/v1.0/groups/${post.teamId}/sites/root`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            const siteData = await siteResponse.json();
+            const siteId = siteData.id;
+            console.log('Site ID:', siteId);
+
+            // Bestimme den Ordner-Pfad
+            const folderPath = getFolderPath(post.channelDisplayName);
+            console.log('Verwende Ordner-Pfad:', folderPath);
+
+            // Ordner prüfen/erstellen
+            const folderExists = await checkFolderExists(accessToken, siteId, folderPath);
+            if (!folderExists) await createFolder(accessToken, siteId, folderPath);
+
+            // Hochladen
+            const uploadedUrls: string[] = [];
+            for (const img of images) {
+                console.log('Lade Bild hoch:', img.file.name);
+                let url: string;
+                if (img.file.size > 4 * 1024 * 1024) {
+                    url = await uploadLargeFile(accessToken, siteId, img.file, folderPath);
+                } else {
+                    url = await uploadSmallFile(accessToken, siteId, img.file, folderPath);
+                }
+                console.log('Hochgeladene URL:', url);
+                uploadedUrls.push(url);
+            }
+
+            console.log('Poste Nachricht mit URLs:', uploadedUrls);
+            // Posten
+            await postMessageToChannel(accessToken, post.teamId, post.channelId, post.text, uploadedUrls, base64Images);
+            await db.posts.delete(post.id);
+            await db.images.where('postId').equals(post.id).delete();
+            console.log('Post synced und gelöscht');
+        } catch (err) {
+            console.error('Sync-Fehler für Post', post.id, ':', err);
+        }
+        setPosting(false);
+    };
+
     const saveOfflinePost = async (files?: File[]) => {
         if (!selectedTeam || !selectedChannel || !customText.trim()) return;
         const post = {
@@ -188,19 +247,20 @@ const TeamsList: React.FC = () => {
             timestamp: Date.now()
         };
         const postId = await db.posts.add(post);
-        console.log('Offline Post gespeichert:', postId, post);
-        // Speichere Dateien
         if (files && files.length > 0) {
-            console.log('Speichere Bilder:', files.length);
             for (const file of files) {
                 await db.images.add({ postId, file });
-                console.log('Bild gespeichert:', file.name);
             }
-        } else {
-            console.log('Keine Bilder zum Speichern');
         }
-        setOfflinePosts([...offlinePosts, { ...post, id: postId }]);
-        alert('Offline gespeichert!');
+        const newPost = { ...post, id: postId };
+        setOfflinePosts([...offlinePosts, newPost]);
+
+        // Neu: Wenn Online, sync nur diesen Post automatisch (ohne await)
+        if (isOnline && account) {
+            await syncPost(newPost);  // Warte, bis Sync fertig
+        }
+        alert(`${files?.length || 0} image(s) saved ${isOnline ? 'and uploaded' : 'offline'}!`);
+        window.location.reload();  // Seite neu laden, um State zu resetten
         // Reset alles
         setCustomText('');
         setImageUrls([]);

@@ -222,14 +222,23 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
     const [uploading, setUploading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+    const [thumbnails, setThumbnails] = useState<string[]>([]);  // State für Thumbnails
     const fileInputRef = useRef<HTMLInputElement>(null);
     const isOnline = navigator.onLine;  // Oder prop übergeben
 
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         if (event.target.files && event.target.files.length > 0) {
             const newFiles = Array.from(event.target.files);
-            setSelectedFiles(prev => [...prev, ...newFiles]);  // Füge neue Dateien hinzu
-            event.target.value = "";  // Reset input für nächste Auswahl
+            setSelectedFiles(prev => [...prev, ...newFiles]);
+            
+            // Erzeuge Thumbnails für Vorschau (klein und schnell)
+            const generateThumbnails = async () => {
+                const newThumbnails = await Promise.all(newFiles.map(file => resizeImage(file, 100, 100, 0.5)));  // Kleine Thumbnails
+                setThumbnails(prev => [...prev, ...newThumbnails]);
+            };
+            generateThumbnails();
+            
+            event.target.value = "";  // Reset input
         }
     };
 
@@ -242,9 +251,10 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
     };
 
     const handleRemoveSelection = () => {
-        setSelectedFiles([]);  // Entferne alle
+        setSelectedFiles([]);
+        setThumbnails([]);  // Thumbnails zurücksetzen
         if (fileInputRef.current) {
-            fileInputRef.current.value = "";  // Reset file input
+            fileInputRef.current.value = "";
         }
     };
 
@@ -310,7 +320,12 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
 
     const handleUpload = async () => {
         if (isOnline && account) {
-            await uploadImages();  // Online-Upload
+            // Online: Speichere wie Offline, dann sync
+            if (onSaveOffline) {
+                onSaveOffline(selectedFiles);
+            }
+            setSuccess(`${selectedFiles.length} image(s) saved and will upload automatically!`);
+            setSelectedFiles([]);
         } else {
             // Offline: Speichere lokal
             if (onSaveOffline) {
@@ -362,8 +377,8 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ team, channel, onUploadSucces
                                     <Box sx={{ position: 'relative' }}>
                                         <CardMedia
                                             component="img"
-                                            height="140"
-                                            image={URL.createObjectURL(file)}
+                                            height="100"  // Kleiner für Performance
+                                            image={thumbnails[index] || ''}  // Verwende thumbnail
                                             alt={file.name}
                                             sx={{ objectFit: 'cover' }}
                                         />
