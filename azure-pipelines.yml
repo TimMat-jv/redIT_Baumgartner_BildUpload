@@ -1,0 +1,38 @@
+trigger: none          # oder trigger auf Zeitplan, wie du willst
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Ziel-Repo in DevOps
+  targetRepoUrl: 'https://dev.azure.com/baumgartnerfenster/RedIT/_git/RedIT'
+
+  # Werte, die im DevOps-Repo stehen sollen
+  redirectUri: 'https://icy-island-08797e603.3.azurestaticapps.net'
+  postLogoutRedirectUri: 'https://icy-island-08797e603.3.azurestaticapps.net'
+  homepage: 'https://icy-mushroom-091e60c03.3.azurestaticapps.net/'
+
+steps:
+  - script: |
+      echo "Cloning public GitHub repo..."
+      git clone https://github.com/Jameslead00/redIT_Baumgartner_BildUpload src
+      cd src
+
+      echo "Patching authConfig.ts..."
+      # Annahme: Datei liegt unter src/authConfig.ts – ggf. Pfad anpassen
+      sed -i "s|redirectUri:.*|redirectUri: \"$(redirectUri)\",|" src/authConfig.ts
+      sed -i "s|postLogoutRedirectUri:.*|postLogoutRedirectUri: \"$(postLogoutRedirectUri)\",|" src/authConfig.ts
+
+      echo "Patching package.json..."
+      sed -i "s|\"homepage\": \".*\"|\"homepage\": \"$(homepage)\"|" package.json
+
+      echo "Configure git user..."
+      git config user.name "azure-pipelines"
+      git config user.email "azure-pipelines@devops.local"
+
+      echo "Adding Azure DevOps remote..."
+      git remote add azure "$(targetRepoUrl)"
+
+      echo "Pushing to Azure DevOps main branch..."
+      git push azure HEAD:refs/heads/main --force
+    displayName: 'Import GitHub repo, patch values, push to DevOps'
