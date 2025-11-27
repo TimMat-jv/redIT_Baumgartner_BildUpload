@@ -15,7 +15,7 @@ variables:
 steps:
   - script: |
       echo "Cloning public GitHub repo..."
-      git clone https://github.com/Jameslead00/redIT_Baumgartner_BildUpload src
+      git clone https://github.com/TimMat-jv/redIT_Baumgartner_BildUpload src
       cd src
 
       echo "Patching authConfig.ts..."
